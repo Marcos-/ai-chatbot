@@ -327,7 +327,7 @@ export async function POST(request: Request) {
 
       // Assuming you have a Stripe instance configured
       event = Stripe.webhooks.constructEvent(rawBody, sig, stripeWebhookSecret);
-    } catch (err) {
+    } catch (err: any) {
       console.error(`⚠️  Webhook signature verification failed.`, err.message);
       return new Response(
         JSON.stringify({ error: "Webhook signature verification failed" }),
@@ -342,7 +342,7 @@ export async function POST(request: Request) {
     return new Response(webhookResponse?.body, {
       status: webhookResponse?.status || 200,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in Stripe webhook handler:", error);
     return new Response(JSON.stringify({ error: "Webhook handler failed." }), {
       status: 500, // Changed to 500, indicating a server error
