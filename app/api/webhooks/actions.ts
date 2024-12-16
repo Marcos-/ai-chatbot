@@ -13,7 +13,12 @@ export async function updateSubscription({
     customer,
     period,
     plan,
-}: User) {
+}: {
+    email: string,
+    customer: string,
+    period: string,
+    plan: string
+}) {
     console.log('Atualizando mensalidade: ', email)
 
     try {
@@ -30,9 +35,9 @@ export async function updateSubscription({
 
         await kv.hmset(`user:${email}`, newUser)
 
-    } catch(error) {
+    } catch(error: any) {
         console.log(error)
-        throw new Error('Ocorreu um erro ao adicionar usuário ',error.message)
+        throw new Error('Ocorreu um erro ao adicionar usuário ', error.message)
     }
 }
 
@@ -53,24 +58,29 @@ export async function cancelStripeSubscriptions(stripeId: string, filterId?: str
     }
 }
 
-export async function removeSubscription(email?: string, stripeId: string) {
-    let userEmail = email
-    
-    if (!email) {
-        const stripeUser = await stripe.customers.retrieve(stripeId)
-        userEmail = stripeUser.email
-    }
-    
-    console.log('Cancelando mensalidade: ', userEmail)
-
-    const subscription = {
-        email: userEmail,
-        customer: stripeId,
-        plan: 'free',
-        period: null,
-    }
-
-    await cancelStripeSubscriptions(stripeId);
-    await updateSubscription(subscription)
-
-}
+export async function removeSubscription(stripeId: string, email?: string) {                                                                                                                                
+    let userEmail: string | undefined = email; // Declare como string | undefined                                                                                                                           
+                                                                                                                                                                                                            
+    if (!email) {                                                                                                                                                                                           
+        const stripeUser = await stripe.customers.retrieve(stripeId);                                                                                                                                       
+                                                                                                                                                                                                            
+        // Verifique se o stripeUser é um Customer antes de acessar a propriedade email                                                                                                                     
+        if ('email' in stripeUser && stripeUser.email) {                                                                                                                                                    
+            userEmail = stripeUser.email; // userEmail agora é string                                                                                                                                       
+        } else {                                                                                                                                                                                            
+            throw new Error('Usuário não encontrado ou foi excluído.');                                                                                                                                     
+        }                                                                                                                                                                                                   
+    }                                                                                                                                                                                                       
+                                                                                                                                                                                                            
+    console.log('Cancelando mensalidade: ', userEmail);                                                                                                                                                     
+                                                                                                                                                                                                            
+    const subscription = {                                                                                                                                                                         
+         email: userEmail || '', // Atribua uma string vazia se userEmail for undefined                                                                                                                      
+         customer: stripeId,                                                                                                                                                                                 
+         plan: 'free',                                                                                                                                                                                       
+         period: 'month',                                                                                                                                                                                            
+     };                                                                                                                                                                                       
+                                                                                                                                                                                                            
+    await cancelStripeSubscriptions(stripeId);                                                                                                                                                              
+    await updateSubscription(subscription);                                                                                                                                                                 
+}  
