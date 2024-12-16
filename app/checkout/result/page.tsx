@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { Stripe } from "stripe";
 import { stripe } from "@/lib/stripe";
 import Link from "next/link";

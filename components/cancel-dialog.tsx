@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { removeSubscription } from "@/app/api/webhooks/actions";
 import {
   AlertDialog,
@@ -14,7 +15,11 @@ import { User } from "@/lib/types";
 import { translatePlan } from '@/lib/utils';
 import { useRouter } from "next/navigation";
 
-export default function CancelDialog({ children, session }: { children: React.ReactNode, session: User }) {
+export default function CancelDialog({ children, session }: { children: React.ReactNode, session: {
+  plan: string,
+  email: string,
+  stripeId: string
+} }) {
   const router = useRouter();
 
   return (

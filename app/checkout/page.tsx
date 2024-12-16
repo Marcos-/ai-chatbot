@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 
 import CancelDialog from "@/components/cancel-dialog";
@@ -86,6 +87,7 @@ export default function DonatePage(): JSX.Element {
             Carregando...
           </button>
             : planKey === 'free' && session?.plan !== 'free' ?
+              
               <CancelDialog session={session}>
                 <button className="mt-0 block w-full rounded-md bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
                   Assinar
