@@ -6,6 +6,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+
+export const translatePlan = {
+  'free': 'Grátis',
+  'basic': 'Básico',
+  'premium': 'Premium',
+  'month': 'Mensal',
+  'anual': 'Anual',
+}
+
 export const nanoid = customAlphabet(
   '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
   7
@@ -68,7 +77,10 @@ export enum ResultCode {
   UserAlreadyExists = 'USER_ALREADY_EXISTS',
   UnknownError = 'UNKNOWN_ERROR',
   UserCreated = 'USER_CREATED',
-  UserLoggedIn = 'USER_LOGGED_IN'
+  UserLoggedIn = 'USER_LOGGED_IN',
+  UserEdited = 'USER_EDITED',
+  UserNotFound = 'USER_NOT_FOUND',
+  StripeError = "StripeError"
 }
 
 export const getMessageFromCode = (resultCode: string) => {

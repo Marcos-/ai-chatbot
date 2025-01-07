@@ -24,14 +24,51 @@ export async function createUser(
       id: crypto.randomUUID(),
       email,
       password: hashedPassword,
-      salt
+      salt,
+      plan: 'free',
+      period: null,
+      stripeId: null,
+      startDate: new Date(),
     }
 
-    await kv.hmset(`user:${email}`, user)
+    // Store the new user in the database
+    await kv.hmset(`user:${email}`, user);
+
+    // Add the user key to the `all_users` set for tracking
+    await kv.sadd('all_users', `user:${email}`);
+    console.log(user, 'user created')
 
     return {
       type: 'success',
       resultCode: ResultCode.UserCreated
+    }
+  }
+}
+
+export async function editUser(
+  email: string,
+  plan: string,
+  period: string
+) {
+  const user = await getUser(email)
+
+  if (user) {
+    const updatedUser = {
+      ...user,
+      plan,
+      period
+    }
+
+    await kv.hmset(`user:${email}`, updatedUser)
+
+    return {
+      type: 'success',
+      resultCode: ResultCode.UserEdited
+    }
+  } else {
+    return {
+      type: 'error',
+      resultCode: ResultCode.UserNotFound
     }
   }
 }

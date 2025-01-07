@@ -9,8 +9,12 @@ import {
   createStreamableValue
 } from 'ai/rsc'
 import { openai } from '@ai-sdk/openai'
+import { generateText } from 'ai';
 
-import { Pinecone } from "@pinecone-database/pinecone"
+import { createEmbeddings,
+  getEmbeddingsFromPinecone, 
+  getEmbeddingsFromQdrant,
+  getEmbeddingsFromWeviate } from './embeddingsProviders'
 
 import {
   spinner,
@@ -25,9 +29,11 @@ import {
   nanoid
 } from '@/lib/utils'
 import { saveChat } from '@/app/actions'
-import { SpinnerMessage, UserMessage } from '@/components/stocks/message'
+import { BotCard, SpinnerMessage, UserMessage } from '@/components/stocks/message'
 import { Chat, Message } from '@/lib/types'
 import { auth } from '@/auth'
+import { vectorsIDs } from './utils'
+import { rateLimit } from './rateLimit'
 
 async function confirmPurchase(symbol: string, price: number, amount: number) {
   'use server'
@@ -99,9 +105,132 @@ async function confirmPurchase(symbol: string, price: number, amount: number) {
   }
 }
 
-async function submitUserMessage(content: string) {
+async function describeImage(imageBase64: string) {
   'use server'
 
+  // await rateLimit()
+
+  const aiState = getMutableAIState()
+  const spinnerStream = createStreamableUI(null)
+  const messageStream = createStreamableUI(null)
+  const uiStream = createStreamableUI()
+
+  uiStream.update(
+    <BotCard>
+      <SpinnerMessage />
+    </BotCard>
+  )
+  messageStream.update(
+    <BotCard>
+      <BotMessage content="Analizando a imagem..." />
+    </BotCard>
+  )
+  ;(async () => {
+    try {
+      let text = ''
+
+      // attachment as video for demo purposes,
+      // add your implementation here to support
+      // video as input for prompts.
+      if (imageBase64 === '') {
+        await new Promise(resolve => setTimeout(resolve, 5000))
+
+        text = `I'm sorry, I couldn't find any books in the image.`
+      } else {
+        // const imageData = imageBase64.split(',')[1]
+
+        const model = openai(process.env.STANDARD_MODEL || 'gpt-4o-mini')
+        const prompt = 'Analyze the image and describe it in detail. Answer in Brazilian Portuguese.'
+        // const image = {
+        //   inlineData: {
+        //     data: imageData,
+        //     mimeType: 'image/png'
+        //   }
+        // }
+
+        const result = await generateText({
+          model,
+          maxTokens: 1024,
+          messages: [
+            {
+              role: 'system',
+              content: prompt
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Analyze the image and describe it in detail from a legal perspective.'
+                },
+                {
+                  type: 'image',
+                  image: imageBase64
+                }
+              ]
+            }
+          ],
+        })
+        text = result.text
+        console.log('describeImage',result.text)
+      }
+
+      spinnerStream.done(null)
+      // messageStream.done(null)
+
+      uiStream.done(
+        <BotCard>
+          <BotMessage content={text} />
+        </BotCard>
+      )
+
+      messageStream.done(
+        <BotCard>
+          <BotMessage content={text} />
+        </BotCard>
+      )
+
+      aiState.done({
+        ...aiState.get(),
+        interactions: [text]
+      })
+    } catch (e) {
+      console.error(e)
+
+      const error = new Error(
+        'The AI got rate limited, please try again later.'
+      )
+      uiStream.error(error)
+      spinnerStream.error(error)
+      messageStream.error(error)
+      aiState.done(null)
+    }
+  })()
+
+  return {
+    id: nanoid(),
+    attachments: uiStream.value,
+    spinner: spinnerStream.value,
+    display: messageStream.value
+  }
+}
+
+async function submitUserMessage(content: string, chat?: any) {
+  'use server'
+
+  // Rate limit
+  await rateLimit()
+
+  if (!chat)
+    chat = {
+      "Name": "standard",
+      "Model": "gpt-3.5-turbo",
+      "Vector": ["reciPa2dwv431SRrU"],
+      "System prompt": null,
+    }
+
+  // console.log("Chat: ", chat)
+  
   const aiState = getMutableAIState<typeof AI>()
 
   aiState.update({
@@ -116,39 +245,52 @@ async function submitUserMessage(content: string) {
     ]
   })  
 
-  // Create input embedding
-  const embeddings = await createEmbeddings(content) as number[]
+  let CONTEXT = ''
 
-  // Get context from Pinecone
-  const context = await getEmbeddingsFromPinecone(embeddings)
+  if (chat["Vector"]) {
+
+      // Gambiarra, remover
+      const vectorName = (chat["Vector"][0] ?? vectorsIDs.find(vector => vector.id === chat["Vector"][0])?.name) || 'other'
+
+      // Create input embedding
+      // const embeddings = content.split(' ').length > 2 ? await createEmbeddings(content) as number[] : []
+      const embeddings = await createEmbeddings(content, vectorName) as number[]
+
+      // Mapping vectors to the correct service
+      
+      if (vectorName == 'pinecone') 
+        CONTEXT = await getEmbeddingsFromPinecone(embeddings)
+      else if (vectorName == 'qdrant')
+        CONTEXT = await getEmbeddingsFromQdrant(embeddings, chat["Name"])
+      else if (vectorName == 'weviate') 
+        CONTEXT = await getEmbeddingsFromWeviate(embeddings)
+  }
 
   let textStream: undefined | ReturnType<typeof createStreamableValue<string>>
   let textNode: undefined | React.ReactNode
 
-  const result = await streamUI({
-    model: openai('gpt-4o'),
-    initial: <SpinnerMessage />,
-    system: `\
-    You are a jurisprudency analist and you can help users understand legal terms, step by step.
-    You and the user can discuss legal terms and the user can ask you to explain the terms.
-    Answer always in Brazilian Portuguese.
-    Always include references and sources in a table format, if possible.
-    
-    [CONTEXT: ${context}]
+  // console.log("Prompt: ", chat["System prompt"])
 
+  // console.log("Content: ", content)
+
+  const result = await streamUI({
+    model: openai(chat['Model'] || 'gpt-4o-mini'),
+    initial: <SpinnerMessage />,
+    temperature: 0,
+    system: chat["System prompt"],
+    prompt: `[User prompt: ${content}] 
+
+    [CONTEXT: ${CONTEXT}]
+    
     [Conversation history: ${aiState.get().messages.map((message: any) => message.content).join(' ').slice(0, 1024)}]
     `,
-    // If the user asks you to explain a term, call \`explain_term\` to explain the term.
-    // If the user asks you to explain a legal concept, call \`explain_concept\` to explain the concept.
-    // If the user asks you to explain a legal case, call \`explain_case\` to explain the case.
-    
-    messages: [
-      ...aiState.get().messages.map((message: any) => ({
-        role: message.role,
-        content: message.content,
-        name: message.name
-      }))
-    ],
+    // messages: [
+    //   ...aiState.get().messages.map((message: any) => ({
+    //     role: message.role,
+    //     content: message.content,
+    //     name: message.name
+    //   }))
+    // ],
     text: ({ content, done, delta }) => {
       if (!textStream) {
         textStream = createStreamableValue('')
@@ -195,7 +337,8 @@ export type UIState = {
 export const AI = createAI<AIState, UIState>({
   actions: {
     submitUserMessage,
-    confirmPurchase
+    confirmPurchase,
+    describeImage
   },
   initialUIState: [],
   initialAIState: { chatId: nanoid(), messages: [] },
@@ -208,7 +351,7 @@ export const AI = createAI<AIState, UIState>({
       const aiState = getAIState()
 
       if (aiState) {
-        const uiState = getUIStateFromAIState(aiState)
+        const uiState = getUIStateFromAIState(aiState as Chat)
         return uiState
       }
     } else {
@@ -227,8 +370,8 @@ export const AI = createAI<AIState, UIState>({
       const userId = session.user.id as string
       const path = `/chat/${chatId}`
 
-      const firstMessageContent = messages[0].content as string
-      const title = firstMessageContent.substring(0, 100)
+      const firstMessageContent = messages[0]?.content as string || ''
+      const title = firstMessageContent.substring(0, 100) || 'Image description'
 
       const chat: Chat = {
         id: chatId,
@@ -252,32 +395,6 @@ export const getUIStateFromAIState = (aiState: Chat) => {
     .map((message, index) => ({
       id: `${aiState.chatId}-${index}`,
       display:
-        // message.role === 'tool' ? (
-        //   message.content.map(tool => {
-        //     return tool.toolName === 'listStocks' ? (
-        //       <BotCard>
-        //         {/* TODO: Infer types based on the tool result*/}
-        //         {/* @ts-expect-error */}
-        //         <Stocks props={tool.result} />
-        //       </BotCard>
-        //     ) : tool.toolName === 'showStockPrice' ? (
-        //       <BotCard>
-        //         {/* @ts-expect-error */}
-        //         <Stock props={tool.result} />
-        //       </BotCard>
-        //     ) : tool.toolName === 'showStockPurchase' ? (
-        //       <BotCard>
-        //         {/* @ts-expect-error */}
-        //         <Purchase props={tool.result} />
-        //       </BotCard>
-        //     ) : tool.toolName === 'getEvents' ? (
-        //       <BotCard>
-        //         {/* @ts-expect-error */}
-        //         <Events props={tool.result} />
-        //       </BotCard>
-        //     ) : null
-        //   })
-        // ) : 
         message.role === 'user' ? (
           <UserMessage>{message.content as string}</UserMessage>
         ) : message.role === 'assistant' &&
@@ -287,63 +404,31 @@ export const getUIStateFromAIState = (aiState: Chat) => {
     }))
 }
 
-const createEmbeddings = async (text: string) => {    
-  try {
-      const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'text-embedding-ada-002',
-          input: text.replace(/\n/g, ' ')
-        })
-      });
-    
-      const result = await response.json();
-      if (!result.data) {
-        console.error('Error creating embedding:', text);
-        return
-      }
-      return result.data[0].embedding as number[]
-  } catch (error) {
-      console.log("Error getting embedding ",error)
-      throw error
-  }
-}
 
-const getEmbeddingsFromPinecone = async (vectors: number[]) => {
-  try {
-    const pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY || '',
-    })
+// const standardConfig = {
+//   model: 'gpt-4o',
+//   system: `You are a jurisprudency analist and you can help users understand legal terms, step by step.
+//   You and the user can discuss legal terms and the user can ask you to explain the terms.
+//   Use only information from the provided context. Always list the used references and sources from the context including the fiuelds Processo, Relator, Ementa, Acórdão and Link.
+//   Based on the context you obtain, craft a well-thought-out response and indicate your sources. NEVER invented numbers or hallucinated. Only use information from the file provided. 
+//   If you can't find the answer, say: 'I still don't know the answer, unfortunately.' Use the data format provided to prepare your answer and include at least the following keys in your answer: 
+//   "process", "rapporteur", "menu" and "agreement" and "link". Remember that the 'link' of the process is exactly the one that appears in the file, considering a string from the "link" key, 
+//   which always starts with the following structure: "https://processo.stj.jus.br/processo /search/?num_registro=...".
+//   Answer always in Brazilian Portuguese.`,
+  
+//   // [CONTEXT: ${context.map((match: any) => match.metadata.document).join()}]
 
-    const index = await pinecone.index('lexgpt')
-    const namespace = index.namespace('stj')
-    const response = await namespace.query({
-      vector: vectors,
-      topK: 3,
-      includeMetadata: true
-    })
-    return response.matches || []
-  } catch (error) {
-    console.log("Error getting embeddings from Pinecone ",error)
-    throw error
-  }
-}
+//   // [Conversation history: ${aiState.get().messages.map((message: any) => message.content).join(' ').slice(0, 1024)}]`,
+//   maxTokens: 1024,
+//   temperature: 0,
+//   topP: 1,
+//   frequencyPenalty: 0,
+//   presencePenalty: 0,
+//   stop: '\n'
+// }
 
-//     You are a stock trading conversation bot and you can help users buy stocks, step by step.
-//     You and the user can discuss stock prices and the user can adjust the amount of stocks they want to buy, or place an order, in the UI.
-    
-//     Messages inside [] means that it's a UI element or a user event. For example:
-//     - "[Price of AAPL = 100]" means that an interface of the stock price of AAPL is shown to the user.
-//     - "[User has changed the amount of AAPL to 10]" means that the user has changed the amount of AAPL to 10 in the UI.
-    
-//     If the user requests purchasing a stock, call \`show_stock_purchase_ui\` to show the purchase UI.
-//     If the user just wants the price, call \`show_stock_price\` to show the price.
-//     If you want to show trending stocks, call \`list_stocks\`.
-//     If you want to show events, call \`get_events\`.
-//     If the user wants to sell stock, or complete another impossible task, respond that you are a demo and cannot do that.
-    
-//     Besides that, you can also chat with users and do some calculations if needed.
+
+
+    // If the user asks you to explain a term, call \`explain_term\` to explain the term.
+    // If the user asks you to explain a legal concept, call \`explain_concept\` to explain the concept.
+    // If the user asks you to explain a legal case, call \`explain_case\` to explain the case.

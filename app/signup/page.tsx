@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { auth } from '@/auth'
 import SignupForm from '@/components/signup-form'
 import { Session } from '@/lib/types'

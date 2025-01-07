@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { signOut } from '@/auth'
+import Link from 'next/link'
 
 export interface UserMenuProps {
   user: Session['user']
@@ -32,9 +33,17 @@ export function UserMenu({ user }: UserMenuProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent sideOffset={8} align="start" className="w-fit">
-          <DropdownMenuItem className="flex-col items-start">
-            <div className="text-xs text-zinc-500">{user.email}</div>
-          </DropdownMenuItem>
+          <Link href="/">
+            <DropdownMenuItem className="flex-col cursor-pointer items-start">
+              <div className="text-xs text-zinc-500">{user.email}</div>
+            </DropdownMenuItem>
+          </Link>
+          <DropdownMenuSeparator />
+          <Link href="/checkout">
+            <DropdownMenuItem className="flex-col cursor-pointer items-start">
+                <button className="text-xs text-zinc-500">Minha assinatura</button>
+            </DropdownMenuItem>
+          </Link>
           <DropdownMenuSeparator />
           <form
             action={async () => {
@@ -43,7 +52,7 @@ export function UserMenu({ user }: UserMenuProps) {
             }}
           >
             <button className=" relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-red-500 hover:text-white focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
-              Sign Out
+              Sair
             </button>
           </form>
         </DropdownMenuContent>
